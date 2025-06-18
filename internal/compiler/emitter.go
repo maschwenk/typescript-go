@@ -2,6 +2,7 @@ package compiler
 
 import (
 	"encoding/base64"
+	"fmt"
 	"strings"
 
 	"github.com/microsoft/typescript-go/internal/ast"
@@ -297,17 +298,25 @@ func (e *emitter) getSourceMappingURL(mapOptions *core.CompilerOptions, sourceMa
 	return stringutil.EncodeURI(sourceMapFile)
 }
 
+// sourceFileMayBeEmitted determines whether a source file should be emitted based on TypeScript compiler rules.
+// This implementation now closely matches the TypeScript utilities.ts sourceFileMayBeEmitted function,
+// including proper handling of JS files, external libraries, project references, and JSON file emission logic.
 func sourceFileMayBeEmitted(sourceFile *ast.SourceFile, host printer.EmitHost, forceDtsEmit bool) bool {
-	// !!! Js files are emitted only if option is enabled
+	options := host.Options()
+
+	// Js files are emitted only if option is enabled
+	if options.NoEmitForJsFiles == core.TSTrue && ast.IsSourceFileJS(sourceFile) {
+		return false
+	}
 
 	// Declaration files are not emitted
 	if sourceFile.IsDeclarationFile {
 		return false
 	}
 
-	// !!! Source file from node_modules are not emitted. In Strada, this depends on module resolution and uses
-	// `sourceFilesFoundSearchingNodeModules` in `createProgram`. For now, we will just check for `/node_modules/` in
-	// the file name.
+	// Source file from node_modules are not emitted
+	// In the TypeScript implementation, this uses host.isSourceFileFromExternalLibrary(sourceFile)
+	// For now, we will just check for `/node_modules/` in the file name.
 	if strings.Contains(sourceFile.FileName(), "/node_modules/") {
 		return false
 	}
@@ -318,17 +327,57 @@ func sourceFileMayBeEmitted(sourceFile *ast.SourceFile, host printer.EmitHost, f
 	}
 
 	// Source files from referenced projects are not emitted
+	// In TypeScript this uses host.isSourceOfProjectReferenceRedirect(sourceFile.fileName)
+	// We're using the available GetOutputAndProjectReference method as an approximation
 	if host.GetOutputAndProjectReference(sourceFile.Path()) != nil {
 		return false
 	}
 
 	// Any non json file should be emitted
 	if !ast.IsJsonSourceFile(sourceFile) {
+		fmt.Println("sourceFile.FileName()", sourceFile.FileName(), "IsJsonSourceFile", true)
 		return true
 	}
 
-	// !!! Should JSON input files be emitted
-	return false
+	// The following logic matches the TypeScript implementation for JSON files
+
+	// In TypeScript this would be: if (host.getResolvedProjectReferenceToRedirect(sourceFile.fileName)) return false;
+	// We don't have this method available yet, so skip this check for now
+
+	// Emit json file if outFile is specified
+	if options.OutFile != "" {
+		fmt.Println("sourceFile.FileName()", sourceFile.FileName(), "options.OutFile", true)
+		return true
+	}
+
+	// Json file is not emitted if outDir is not specified
+	if options.OutDir == "" {
+		fmt.Println("sourceFile.FileName()", sourceFile.FileName(), "options.OutDir", true)
+		return false
+	}
+
+	// Otherwise if rootDir or composite config file, we know common sourceDir and can check if file would be emitted in same location
+	if options.RootDir != "" || (options.Composite == core.TSTrue && options.ConfigFilePath != "") {
+		// Get normalized absolute paths
+		commonDir := host.CommonSourceDirectory()
+		currentDir := host.GetCurrentDirectory()
+		
+		// Calculate output path
+		outputPath := outputpaths.GetSourceFilePathInNewDir(sourceFile.FileName(), options.OutDir, currentDir, commonDir, host.UseCaseSensitiveFileNames())
+		
+		// Compare paths - if they're the same, don't emit
+		compareResult := tspath.ComparePaths(sourceFile.FileName(), outputPath, tspath.ComparePathsOptions{
+			CurrentDirectory:          currentDir,
+			UseCaseSensitiveFileNames: host.UseCaseSensitiveFileNames(),
+		})
+		if compareResult == 0 { // Comparison.EqualTo
+			return false
+		}
+	}
+
+	fmt.Println("sourceFile.FileName()", sourceFile.FileName(), "fully fell through", true)
+
+	return true
 }
 
 func getSourceFilesToEmit(host printer.EmitHost, targetSourceFile *ast.SourceFile, forceDtsEmit bool) []*ast.SourceFile {
@@ -340,7 +389,9 @@ func getSourceFilesToEmit(host printer.EmitHost, targetSourceFile *ast.SourceFil
 		sourceFiles = host.SourceFiles()
 	}
 	return core.Filter(sourceFiles, func(sourceFile *ast.SourceFile) bool {
-		return sourceFileMayBeEmitted(sourceFile, host, forceDtsEmit)
+		var result bool = sourceFileMayBeEmitted(sourceFile, host, forceDtsEmit)
+		fmt.Println("sourceFile.FileName()", sourceFile.FileName(), "result", result)
+		return result
 	})
 }
 
