@@ -2056,6 +2056,9 @@ func SkipTriviaEx(text string, pos int, options *SkipTriviaOptions) int {
 	// Keep in sync with couldStartTrivia
 	for {
 		ch, size := utf8.DecodeRuneInString(text[pos:])
+		if size == 0 {
+			return pos
+		}
 		switch ch {
 		case '\r':
 			if pos+1 < textLen && text[pos+1] == '\n' {
@@ -2141,6 +2144,11 @@ var (
 func isConflictMarkerTrivia(text string, pos int) bool {
 	if pos < 0 {
 		panic("pos < 0")
+	}
+
+	// Check bounds before accessing text[pos]
+	if pos >= len(text) {
+		return false
 	}
 
 	// Conflict markers must be at the start of a line.
