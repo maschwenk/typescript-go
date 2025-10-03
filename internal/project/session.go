@@ -3,6 +3,7 @@ package project
 import (
 	"context"
 	"fmt"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -371,6 +372,7 @@ func (s *Session) GetLanguageService(ctx context.Context, uri lsproto.DocumentUr
 }
 
 func (s *Session) UpdateSnapshot(ctx context.Context, overlays map[tspath.Path]*overlay, change SnapshotChange) *Snapshot {
+	defer runtime.GC()
 	s.snapshotMu.Lock()
 	oldSnapshot := s.snapshot
 	newSnapshot := oldSnapshot.Clone(ctx, change, overlays, s)
