@@ -3,12 +3,12 @@ package project
 import (
 	"context"
 	"fmt"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
-	"runtime"
 
 	"github.com/microsoft/typescript-go/internal/ast"
 	"github.com/microsoft/typescript-go/internal/collections"
